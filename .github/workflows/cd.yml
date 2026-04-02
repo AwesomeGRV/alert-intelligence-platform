@@ -1,0 +1,260 @@
+name: CD Pipeline
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+        - staging
+        - production
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  deploy-staging:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'staging')
+    environment: staging
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: us-west-2
+    
+    - name: Update kubeconfig
+      run: |
+        aws eks update-kubeconfig --name alert-intelligence-staging
+    
+    - name: Deploy to staging
+      run: |
+        # Set image tags
+        export BACKEND_IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/backend:main-${{ github.sha }}
+        export FRONTEND_IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/frontend:main-${{ github.sha }}
+        
+        # Apply namespace and configurations
+        kubectl apply -f deployment/k8s/namespace.yaml
+        kubectl apply -f deployment/k8s/configmap.yaml
+        kubectl apply -f deployment/k8s/secrets.yaml
+        
+        # Deploy database and infrastructure
+        kubectl apply -f deployment/k8s/postgres-deployment.yaml
+        kubectl apply -f deployment/k8s/elasticsearch-deployment.yaml
+        kubectl apply -f deployment/k8s/redis-deployment.yaml
+        kubectl apply -f deployment/k8s/kafka-deployment.yaml
+        
+        # Wait for infrastructure to be ready
+        kubectl wait --for=condition=ready pod -l app=postgres -n alert-intelligence --timeout=300s
+        kubectl wait --for=condition=ready pod -l app=elasticsearch -n alert-intelligence --timeout=300s
+        kubectl wait --for=condition=ready pod -l app=redis -n alert-intelligence --timeout=300s
+        kubectl wait --for=condition=ready pod -l app=kafka -n alert-intelligence --timeout=300s
+        
+        # Deploy applications
+        envsubst < deployment/k8s/backend-deployment.yaml | kubectl apply -f -
+        envsubst < deployment/k8s/frontend-deployment.yaml | kubectl apply -f -
+        
+        # Apply networking
+        kubectl apply -f deployment/k8s/ingress.yaml
+        kubectl apply -f deployment/k8s/hpa.yaml
+        
+        # Wait for deployments to be ready
+        kubectl rollout status deployment/backend-deployment -n alert-intelligence --timeout=600s
+        kubectl rollout status deployment/frontend-deployment -n alert-intelligence --timeout=600s
+    
+    - name: Run smoke tests
+      run: |
+        # Wait for services to be fully ready
+        sleep 30
+        
+        # Get the staging URL
+        STAGING_URL=$(kubectl get ingress alert-intelligence-ingress -n alert-intelligence -o jsonpath='{.spec.rules[0].host}')
+        
+        # Run smoke tests
+        curl -f "http://$STAGING_URL/health" || exit 1
+        curl -f "http://$STAGING_URL/api/health" || exit 1
+        
+        echo "Smoke tests passed for staging environment"
+    
+    - name: Notify Slack
+      uses: 8398a7/action-slack@v3
+      with:
+        status: ${{ job.status }}
+        channel: '#deployments'
+        text: 'Staging deployment completed'
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+  deploy-production:
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')
+    environment: production
+    needs: deploy-staging
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: us-west-2
+    
+    - name: Update kubeconfig
+      run: |
+        aws eks update-kubeconfig --name alert-intelligence-production
+    
+    - name: Deploy to production
+      run: |
+        # Extract version from tag or use commit sha
+        VERSION=${GITHUB_REF#refs/tags/v-}
+        if [ "$VERSION" = "$GITHUB_REF" ]; then
+          VERSION=${{ github.sha }}
+        fi
+        
+        # Set image tags
+        export BACKEND_IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/backend:v$VERSION
+        export FRONTEND_IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/frontend:v$VERSION
+        
+        # Verify images exist
+        docker pull $BACKEND_IMAGE
+        docker pull $FRONTEND_IMAGE
+        
+        # Apply namespace and configurations
+        kubectl apply -f deployment/k8s/namespace.yaml
+        kubectl apply -f deployment/k8s/configmap.yaml
+        kubectl apply -f deployment/k8s/secrets.yaml
+        
+        # Deploy database and infrastructure
+        kubectl apply -f deployment/k8s/postgres-deployment.yaml
+        kubectl apply -f deployment/k8s/elasticsearch-deployment.yaml
+        kubectl apply -f deployment/k8s/redis-deployment.yaml
+        kubectl apply -f deployment/k8s/kafka-deployment.yaml
+        
+        # Wait for infrastructure to be ready
+        kubectl wait --for=condition=ready pod -l app=postgres -n alert-intelligence --timeout=300s
+        kubectl wait --for=condition=ready pod -l app=elasticsearch -n alert-intelligence --timeout=300s
+        kubectl wait --for=condition=ready pod -l app=redis -n alert-intelligence --timeout=300s
+        kubectl wait --for=condition=ready pod -l app=kafka -n alert-intelligence --timeout=300s
+        
+        # Deploy applications with blue-green strategy
+        # Create new deployment version
+        envsubst < deployment/k8s/backend-deployment.yaml | sed 's/backend-deployment/backend-deployment-v2/' | kubectl apply -f -
+        envsubst < deployment/k8s/frontend-deployment.yaml | sed 's/frontend-deployment/frontend-deployment-v2/' | kubectl apply -f -
+        
+        # Wait for new deployments to be ready
+        kubectl rollout status deployment/backend-deployment-v2 -n alert-intelligence --timeout=600s
+        kubectl rollout status deployment/frontend-deployment-v2 -n alert-intelligence --timeout=600s
+        
+        # Update service selector to point to new version
+        kubectl patch service api-service -n alert-intelligence -p '{"spec":{"selector":{"version":"v2"}}}'
+        kubectl patch service frontend-service -n alert-intelligence -p '{"spec":{"selector":{"version":"v2"}}}'
+        
+        # Wait for traffic to be served by new version
+        sleep 30
+        
+        # Clean up old deployment
+        kubectl delete deployment backend-deployment -n alert-intelligence --ignore-not-found=true
+        kubectl delete deployment frontend-deployment -n alert-intelligence --ignore-not-found=true
+        
+        # Rename new deployment to original name
+        kubectl patch deployment backend-deployment-v2 -n alert-intelligence -p '{"metadata":{"name":"backend-deployment"}}'
+        kubectl patch deployment frontend-deployment-v2 -n alert-intelligence -p '{"metadata":{"name":"frontend-deployment"}}'
+        
+        # Apply networking and autoscaling
+        kubectl apply -f deployment/k8s/ingress.yaml
+        kubectl apply -f deployment/k8s/hpa.yaml
+    
+    - name: Run production smoke tests
+      run: |
+        # Wait for services to be fully ready
+        sleep 60
+        
+        # Get the production URL
+        PROD_URL=$(kubectl get ingress alert-intelligence-ingress -n alert-intelligence -o jsonpath='{.spec.rules[0].host}')
+        
+        # Run comprehensive smoke tests
+        curl -f "http://$PROD_URL/health" || exit 1
+        curl -f "http://$PROD_URL/api/health" || exit 1
+        
+        # Test API endpoints
+        curl -f "http://$PROD_URL/api/v1/dashboard/overview" || exit 1
+        curl -f "http://$PROD_URL/api/v1/alerts/" || exit 1
+        
+        echo "Production smoke tests passed"
+    
+    - name: Create GitHub Release
+      if: startsWith(github.ref, 'refs/tags/v')
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.ref }}
+        release_name: Release ${{ github.ref }}
+        draft: false
+        prerelease: false
+    
+    - name: Notify Slack
+      uses: 8398a7/action-slack@v3
+      with:
+        status: ${{ job.status }}
+        channel: '#deployments'
+        text: 'Production deployment completed'
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+  rollback:
+    runs-on: ubuntu-latest
+    if: failure() && needs.deploy-staging.result == 'success'
+    needs: deploy-staging
+    environment: staging
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: us-west-2
+    
+    - name: Update kubeconfig
+      run: |
+        aws eks update-kubeconfig --name alert-intelligence-staging
+    
+    - name: Rollback deployment
+      run: |
+        echo "Rolling back staging deployment..."
+        kubectl rollout undo deployment/backend-deployment -n alert-intelligence
+        kubectl rollout undo deployment/frontend-deployment -n alert-intelligence
+        
+        kubectl rollout status deployment/backend-deployment -n alert-intelligence --timeout=300s
+        kubectl rollout status deployment/frontend-deployment -n alert-intelligence --timeout=300s
+        
+        echo "Rollback completed"
+    
+    - name: Notify Slack
+      uses: 8398a7/action-slack@v3
+      with:
+        status: 'failure'
+        channel: '#deployments'
+        text: 'Staging deployment rolled back'
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
