@@ -9,6 +9,7 @@ import numpy as np
 
 from ..core.elasticsearch import es_client
 from ..core.config import settings
+from .root_cause_rules import RootCauseAnalyzer
 
 logger = structlog.get_logger()
 
@@ -17,6 +18,7 @@ class CorrelationEngine:
         self.correlation_window_hours = 24
         self.similarity_threshold = 0.7
         self.vectorizer = TfidfVectorizer(max_features=1000, stop_words='english')
+        self.root_cause_analyzer = RootCauseAnalyzer()
     
     async def correlate_alerts_with_incidents(
         self, 
@@ -35,13 +37,15 @@ class CorrelationEngine:
             # Calculate correlation score
             correlation_score = self._calculate_correlation_score(correlations)
             
-            # Suggest root cause
-            suggested_root_cause = self._suggest_root_cause(correlations)
+            # Enhanced root cause analysis with rule-based system
+            root_cause_analysis = await self._analyze_root_cause_with_rules(
+                alert_cluster, correlations
+            )
             
             return {
                 "correlations": correlations,
                 "correlation_score": correlation_score,
-                "suggested_root_cause": suggested_root_cause,
+                "root_cause_analysis": root_cause_analysis,
                 "confidence": self._calculate_confidence(correlations, correlation_score)
             }
             
@@ -293,6 +297,44 @@ class CorrelationEngine:
         except Exception as e:
             logger.error(f"Failed to calculate correlation score: {str(e)}")
             return 0.0
+    
+    async def _analyze_root_cause_with_rules(
+        self, 
+        alert_cluster: Dict[str, Any], 
+        correlations: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Enhanced root cause analysis using rule-based system"""
+        try:
+            # Perform rule-based analysis
+            root_cause_analysis = await self.root_cause_analyzer.analyze_root_cause(
+                alert_cluster, 
+                correlations,
+                correlations.get("log_patterns", []),
+                correlations.get("metric_anomalies", [])
+            )
+            
+            # Convert to dictionary format
+            return {
+                "root_cause_type": root_cause_analysis.root_cause_type.value,
+                "confidence": root_cause_analysis.confidence.value,
+                "description": root_cause_analysis.description,
+                "suggested_action": root_cause_analysis.suggested_action,
+                "supporting_evidence": root_cause_analysis.supporting_evidence,
+                "related_rules": root_cause_analysis.related_rules,
+                "confidence_score": root_cause_analysis.confidence_score
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to analyze root cause with rules: {str(e)}")
+            return {
+                "root_cause_type": "unknown",
+                "confidence": "low",
+                "description": "Root cause analysis failed",
+                "suggested_action": "Manual investigation required",
+                "supporting_evidence": [],
+                "related_rules": [],
+                "confidence_score": 0.0
+            }
     
     def _suggest_root_cause(self, correlations: Dict[str, Any]) -> str:
         try:

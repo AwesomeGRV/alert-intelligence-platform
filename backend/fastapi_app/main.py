@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 import structlog
 import uvicorn
 
-from .routers import alerts, incidents, dashboard, chatops
+from .routers import alerts, incidents, dashboard, chatops, correlation
 from .core.database import init_db
 from .core.elasticsearch import init_elasticsearch
 from .core.config import settings
@@ -40,6 +40,7 @@ app.include_router(alerts.router, prefix="/api/v1/alerts", tags=["alerts"])
 app.include_router(incidents.router, prefix="/api/v1/incidents", tags=["incidents"])
 app.include_router(dashboard.router, prefix="/api/v1/dashboard", tags=["dashboard"])
 app.include_router(chatops.router, prefix="/api/v1/chatops", tags=["chatops"])
+app.include_router(correlation.router, prefix="/api/v1/correlation", tags=["correlation"])
 
 @app.get("/")
 async def root():
