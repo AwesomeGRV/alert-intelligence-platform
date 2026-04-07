@@ -5,10 +5,12 @@ from contextlib import asynccontextmanager
 import structlog
 import uvicorn
 
-from .routers import alerts, incidents, dashboard, chatops, correlation
+from .routers import alerts, incidents, dashboard, chatops, correlation, enterprise
 from .core.database import init_db
 from .core.elasticsearch import init_elasticsearch
 from .core.config import settings
+from .middleware.security import SecurityMiddleware, AuthenticationMiddleware, AuditMiddleware, PerformanceMiddleware
+from .core.scalability import scalability_manager
 
 logger = structlog.get_logger()
 security = HTTPBearer()
@@ -18,8 +20,16 @@ async def lifespan(app: FastAPI):
     logger.info("Starting Alert Intelligence Platform")
     await init_db()
     await init_elasticsearch()
+    
+    # Start scalability components
+    await scalability_manager.start_all()
+    
+    logger.info("Platform startup complete")
     yield
-    logger.info("Shutting down Alert Intelligence Platform")
+    
+    # Stop scalability components
+    await scalability_manager.stop_all()
+    logger.info("Platform shutdown complete")
 
 app = FastAPI(
     title="Alert Intelligence Platform",
@@ -36,11 +46,32 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Add security and performance middleware
+app.add_middleware(SecurityMiddleware, config={
+    "max_request_size": 10 * 1024 * 1024,  # 10MB
+    "rate_limit_enabled": True,
+    "ip_whitelist_enabled": False,
+    "request_timeout": 30
+})
+
+app.add_middleware(AuthenticationMiddleware, public_paths=[
+    "/",
+    "/health",
+    "/docs",
+    "/openapi.json",
+    "/api/v1/chatops/slack/events",
+    "/api/v1/chatops/teams/events"
+])
+
+app.add_middleware(AuditMiddleware)
+app.add_middleware(PerformanceMiddleware, slow_request_threshold_ms=1000)
+
 app.include_router(alerts.router, prefix="/api/v1/alerts", tags=["alerts"])
 app.include_router(incidents.router, prefix="/api/v1/incidents", tags=["incidents"])
 app.include_router(dashboard.router, prefix="/api/v1/dashboard", tags=["dashboard"])
 app.include_router(chatops.router, prefix="/api/v1/chatops", tags=["chatops"])
 app.include_router(correlation.router, prefix="/api/v1/correlation", tags=["correlation"])
+app.include_router(enterprise.router, prefix="/api/v1/enterprise", tags=["enterprise"])
 
 @app.get("/")
 async def root():
