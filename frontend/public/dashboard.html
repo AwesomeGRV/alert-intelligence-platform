@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Alert Intelligence Platform - Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @keyframes pulse-glow {
+            0%, 100% { box-shadow: 0 0 20px rgba(59, 130, 246, 0.5); }
+            50% { box-shadow: 0 0 30px rgba(59, 130, 246, 0.8); }
+        }
+        
+        @keyframes slide-in {
+            from { transform: translateY(-10px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+        
+        .animate-slide-in {
+            animation: slide-in 0.3s ease-out;
+        }
+        
+        .glass-effect {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.18);
+        }
+        
+        .gradient-bg {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        
+        .card-hover {
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        .card-hover:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+        }
+        
+        .severity-critical { background: linear-gradient(135deg, #ef4444, #dc2626); }
+        .severity-high { background: linear-gradient(135deg, #f97316, #ea580c); }
+        .severity-medium { background: linear-gradient(135deg, #eab308, #ca8a04); }
+        .severity-low { background: linear-gradient(135deg, #22c55e, #16a34a); }
+        
+        .status-open { background: linear-gradient(135deg, #ef4444, #dc2626); }
+        .status-investigating { background: linear-gradient(135deg, #eab308, #ca8a04); }
+        .status-resolved { background: linear-gradient(135deg, #22c55e, #16a34a); }
+        
+        .pulse-dot {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: .5; }
+        }
+        
+        .chart-container {
+            position: relative;
+            height: 300px;
+        }
+        
+        .notification-badge {
+            animation: pulse-glow 2s infinite;
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <!-- Background Pattern -->
+    <div class="fixed inset-0 -z-10 opacity-5">
+        <div class="absolute inset-0" style="background-image: url('data:image/svg+xml,%3Csvg width="60" height="60" viewBox="0 0 60 60" xmlns="http://www.w3.org/2000/svg"%3E%3Cg fill="none" fill-rule="evenodd"%3E%3Cg fill="%239C92AC" fill-opacity="0.4"%3E%3Cpath d="M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z"/%3E%3C/g%3E%3C/g%3E%3C/svg%3E');"></div>
+    </div>
+
+    <!-- Header -->
+    <header class="glass-effect sticky top-0 z-50 border-b border-gray-200">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between items-center h-16">
+                <div class="flex items-center space-x-4">
+                    <div class="flex items-center space-x-2">
+                        <div class="w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center">
+                            <i data-lucide="shield-alert" class="w-5 h-5 text-white"></i>
+                        </div>
+                        <h1 class="text-xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+                            Alert Intelligence Platform
+                        </h1>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <div id="connection-status" class="w-2 h-2 bg-green-500 rounded-full pulse-dot"></div>
+                        <span class="text-sm text-gray-600">Connected</span>
+                    </div>
+                </div>
+                
+                <div class="flex items-center space-x-4">
+                    <button onclick="refreshData()" class="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors">
+                        <i data-lucide="refresh-cw" class="w-5 h-5"></i>
+                    </button>
+                    <button onclick="toggleTheme()" class="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors">
+                        <i data-lucide="moon" class="w-5 h-5"></i>
+                    </button>
+                    <button onclick="showSettings()" class="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors">
+                        <i data-lucide="settings" class="w-5 h-5"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <!-- Quick Actions Bar -->
+        <div class="mb-8 glass-effect rounded-xl p-4">
+            <div class="flex flex-wrap gap-3">
+                <button onclick="createSampleData()" class="px-4 py-2 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg hover:from-blue-600 hover:to-blue-700 transition-all duration-200 shadow-lg hover:shadow-xl flex items-center space-x-2">
+                    <i data-lucide="database" class="w-4 h-4"></i>
+                    <span>Create Sample Data</span>
+                </button>
+                <button onclick="createAlert()" class="px-4 py-2 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-lg hover:from-green-600 hover:to-green-700 transition-all duration-200 shadow-lg hover:shadow-xl flex items-center space-x-2">
+                    <i data-lucide="plus-circle" class="w-4 h-4"></i>
+                    <span>Create Alert</span>
+                </button>
+                <button onclick="createIncident()" class="px-4 py-2 bg-gradient-to-r from-yellow-500 to-yellow-600 text-white rounded-lg hover:from-yellow-600 hover:to-yellow-700 transition-all duration-200 shadow-lg hover:shadow-xl flex items-center space-x-2">
+                    <i data-lucide="alert-triangle" class="w-4 h-4"></i>
+                    <span>Create Incident</span>
+                </button>
+                <button onclick="exportData()" class="px-4 py-2 bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-lg hover:from-purple-600 hover:to-purple-700 transition-all duration-200 shadow-lg hover:shadow-xl flex items-center space-x-2">
+                    <i data-lucide="download" class="w-4 h-4"></i>
+                    <span>Export Data</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Metrics Cards -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            <div class="glass-effect rounded-xl p-6 card-hover animate-slide-in">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm font-medium text-gray-600">Total Alerts</p>
+                        <p class="text-3xl font-bold text-gray-900 mt-2" id="total-alerts">0</p>
+                        <p class="text-sm text-gray-500 mt-1">Last 24 hours</p>
+                    </div>
+                    <div class="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+                        <i data-lucide="bell" class="w-6 h-6 text-blue-600"></i>
+                    </div>
+                </div>
+                <div class="mt-4">
+                    <div class="flex items-center text-sm">
+                        <span class="text-green-600 font-medium">+12%</span>
+                        <span class="text-gray-500 ml-2">from yesterday</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="glass-effect rounded-xl p-6 card-hover animate-slide-in" style="animation-delay: 0.1s">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm font-medium text-gray-600">Active Incidents</p>
+                        <p class="text-3xl font-bold text-gray-900 mt-2" id="active-incidents">0</p>
+                        <p class="text-sm text-gray-500 mt-1">Requires attention</p>
+                    </div>
+                    <div class="w-12 h-12 bg-orange-100 rounded-lg flex items-center justify-center">
+                        <i data-lucide="alert-circle" class="w-6 h-6 text-orange-600"></i>
+                    </div>
+                </div>
+                <div class="mt-4">
+                    <div class="flex items-center text-sm">
+                        <span class="text-red-600 font-medium">+3</span>
+                        <span class="text-gray-500 ml-2">new today</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="glass-effect rounded-xl p-6 card-hover animate-slide-in" style="animation-delay: 0.2s">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm font-medium text-gray-600">Critical Alerts</p>
+                        <p class="text-3xl font-bold text-red-600 mt-2" id="critical-alerts">0</p>
+                        <p class="text-sm text-gray-500 mt-1">Immediate action</p>
+                    </div>
+                    <div class="w-12 h-12 bg-red-100 rounded-lg flex items-center justify-center">
+                        <i data-lucide="zap" class="w-6 h-6 text-red-600"></i>
+                    </div>
+                </div>
+                <div class="mt-4">
+                    <div class="flex items-center text-sm">
+                        <span class="text-red-600 font-medium">High</span>
+                        <span class="text-gray-500 ml-2">priority level</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="glass-effect rounded-xl p-6 card-hover animate-slide-in" style="animation-delay: 0.3s">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm font-medium text-gray-600">System Health</p>
+                        <p class="text-3xl font-bold text-green-600 mt-2" id="system-health">98%</p>
+                        <p class="text-sm text-gray-500 mt-1">Overall status</p>
+                    </div>
+                    <div class="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
+                        <i data-lucide="heart" class="w-6 h-6 text-green-600"></i>
+                    </div>
+                </div>
+                <div class="mt-4">
+                    <div class="flex items-center text-sm">
+                        <span class="text-green-600 font-medium">Optimal</span>
+                        <span class="text-gray-500 ml-2">performance</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Charts and Data -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+            <!-- Alert Trends Chart -->
+            <div class="glass-effect rounded-xl p-6">
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="text-lg font-semibold text-gray-900">Alert Trends</h2>
+                    <select class="text-sm border border-gray-300 rounded-lg px-3 py-1">
+                        <option>Last 7 days</option>
+                        <option>Last 30 days</option>
+                        <option>Last 3 months</option>
+                    </select>
+                </div>
+                <div class="chart-container">
+                    <canvas id="alertTrendsChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Severity Distribution -->
+            <div class="glass-effect rounded-xl p-6">
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="text-lg font-semibold text-gray-900">Severity Distribution</h2>
+                    <button class="text-sm text-blue-600 hover:text-blue-700">View Details</button>
+                </div>
+                <div class="chart-container">
+                    <canvas id="severityChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Recent Activity -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <!-- Recent Alerts -->
+            <div class="glass-effect rounded-xl p-6">
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="text-lg font-semibold text-gray-900">Recent Alerts</h2>
+                    <div class="flex items-center space-x-2">
+                        <span class="w-2 h-2 bg-green-500 rounded-full pulse-dot"></span>
+                        <span class="text-sm text-gray-600">Live</span>
+                    </div>
+                </div>
+                <div id="alerts-list" class="space-y-3 max-h-96 overflow-y-auto">
+                    <div class="text-center py-8 text-gray-500">
+                        <i data-lucide="inbox" class="w-12 h-12 mx-auto mb-3 text-gray-300"></i>
+                        <p>Loading alerts...</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Recent Incidents -->
+            <div class="glass-effect rounded-xl p-6">
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="text-lg font-semibold text-gray-900">Active Incidents</h2>
+                    <span class="px-2 py-1 bg-red-100 text-red-800 text-xs rounded-full notification-badge">
+                        <span id="incident-count">0</span> Active
+                    </span>
+                </div>
+                <div id="incidents-list" class="space-y-3 max-h-96 overflow-y-auto">
+                    <div class="text-center py-8 text-gray-500">
+                        <i data-lucide="shield-off" class="w-12 h-12 mx-auto mb-3 text-gray-300"></i>
+                        <p>Loading incidents...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Toast Notification Container -->
+    <div id="toast-container" class="fixed top-20 right-4 z-50 space-y-2"></div>
+
+    <script>
+        const API_BASE = 'http://localhost:8000';
+        let alertTrendsChart, severityChart;
+        let isDarkMode = false;
+
+        // Initialize Lucide icons
+        lucide.createIcons();
+
+        // Toast notification system
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            const icons = {
+                success: 'check-circle',
+                error: 'x-circle',
+                warning: 'alert-triangle',
+                info: 'info'
+            };
+            
+            toast.className = `glass-effect p-4 rounded-lg shadow-lg animate-slide-in flex items-center space-x-3 max-w-sm`;
+            toast.innerHTML = `
+                <i data-lucide="${icons[type]}" class="w-5 h-5 text-${type === 'success' ? 'green' : type === 'error' ? 'red' : type === 'warning' ? 'yellow' : 'blue'}-600"></i>
+                <span class="text-gray-800">${message}</span>
+            `;
+            
+            container.appendChild(toast);
+            lucide.createIcons();
+            
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                toast.style.transform = 'translateX(100%)';
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+
+        // Initialize charts
+        function initCharts() {
+            // Alert Trends Chart
+            const trendsCtx = document.getElementById('alertTrendsChart').getContext('2d');
+            alertTrendsChart = new Chart(trendsCtx, {
+                type: 'line',
+                data: {
+                    labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+                    datasets: [{
+                        label: 'Alerts',
+                        data: [12, 19, 3, 5, 2, 3, 8],
+                        borderColor: 'rgb(59, 130, 246)',
+                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                        tension: 0.4,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        y: { beginAtZero: true }
+                    }
+                }
+            });
+
+            // Severity Distribution Chart
+            const severityCtx = document.getElementById('severityChart').getContext('2d');
+            severityChart = new Chart(severityCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Critical', 'High', 'Medium', 'Low'],
+                    datasets: [{
+                        data: [0, 0, 0, 0],
+                        backgroundColor: [
+                            'rgb(239, 68, 68)',
+                            'rgb(249, 115, 22)',
+                            'rgb(234, 179, 8)',
+                            'rgb(34, 197, 94)'
+                        ]
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom'
+                        }
+                    }
+                }
+            });
+        }
+
+        // Update metrics
+        function updateMetrics(data) {
+            document.getElementById('total-alerts').textContent = data.total_alerts || 0;
+            document.getElementById('active-incidents').textContent = data.active_incidents?.length || 0;
+            document.getElementById('critical-alerts').textContent = data.severity_distribution?.critical || 0;
+            document.getElementById('incident-count').textContent = data.active_incidents?.length || 0;
+            
+            // Update severity chart
+            const severityData = data.severity_distribution || {};
+            if (severityChart) {
+                severityChart.data.datasets[0].data = [
+                    severityData.critical || 0,
+                    severityData.high || 0,
+                    severityData.medium || 0,
+                    severityData.low || 0
+                ];
+                severityChart.update();
+            }
+        }
+
+        // Render alerts
+        function renderAlerts(alerts) {
+            const container = document.getElementById('alerts-list');
+            
+            if (!alerts || alerts.length === 0) {
+                container.innerHTML = `
+                    <div class="text-center py-8 text-gray-500">
+                        <i data-lucide="inbox" class="w-12 h-12 mx-auto mb-3 text-gray-300"></i>
+                        <p>No alerts found</p>
+                    </div>
+                `;
+                lucide.createIcons();
+                return;
+            }
+
+            container.innerHTML = alerts.slice(-5).reverse().map(alert => `
+                <div class="border-l-4 border-blue-500 bg-white rounded-lg p-4 shadow-sm hover:shadow-md transition-shadow">
+                    <div class="flex justify-between items-start">
+                        <div class="flex-1">
+                            <h4 class="font-medium text-gray-900">${alert.description}</h4>
+                            <div class="flex items-center space-x-4 mt-1">
+                                <span class="text-sm text-gray-500 flex items-center">
+                                    <i data-lucide="server" class="w-3 h-3 mr-1"></i>
+                                    ${alert.service}
+                                </span>
+                                <span class="text-sm text-gray-500 flex items-center">
+                                    <i data-lucide="source" class="w-3 h-3 mr-1"></i>
+                                    ${alert.source}
+                                </span>
+                                <span class="text-sm text-gray-500 flex items-center">
+                                    <i data-lucide="clock" class="w-3 h-3 mr-1"></i>
+                                    ${new Date(alert.timestamp).toLocaleTimeString()}
+                                </span>
+                            </div>
+                            ${alert.tags && alert.tags.length > 0 ? `
+                                <div class="flex items-center space-x-1 mt-2">
+                                    ${alert.tags.map(tag => `<span class="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded">${tag}</span>`).join('')}
+                                </div>
+                            ` : ''}
+                        </div>
+                        <span class="px-3 py-1 text-xs font-medium rounded-full text-white ${getSeverityClass(alert.severity)}">
+                            ${alert.severity.toUpperCase()}
+                        </span>
+                    </div>
+                </div>
+            `).join('');
+            
+            lucide.createIcons();
+        }
+
+        // Render incidents
+        function renderIncidents(incidents) {
+            const container = document.getElementById('incidents-list');
+            
+            if (!incidents || incidents.length === 0) {
+                container.innerHTML = `
+                    <div class="text-center py-8 text-gray-500">
+                        <i data-lucide="shield-off" class="w-12 h-12 mx-auto mb-3 text-gray-300"></i>
+                        <p>No incidents found</p>
+                    </div>
+                `;
+                lucide.createIcons();
+                return;
+            }
+
+            container.innerHTML = incidents.slice(-5).reverse().map(incident => `
+                <div class="border-l-4 border-orange-500 bg-white rounded-lg p-4 shadow-sm hover:shadow-md transition-shadow">
+                    <div class="flex justify-between items-start">
+                        <div class="flex-1">
+                            <h4 class="font-medium text-gray-900">${incident.title}</h4>
+                            <p class="text-sm text-gray-600 mt-1">${incident.description}</p>
+                            <div class="flex items-center space-x-4 mt-2">
+                                <span class="text-sm text-gray-500 flex items-center">
+                                    <i data-lucide="server" class="w-3 h-3 mr-1"></i>
+                                    ${incident.service}
+                                </span>
+                                <span class="text-sm text-gray-500 flex items-center">
+                                    <i data-lucide="clock" class="w-3 h-3 mr-1"></i>
+                                    ${new Date(incident.created_at).toLocaleTimeString()}
+                                </span>
+                            </div>
+                        </div>
+                        <span class="px-3 py-1 text-xs font-medium rounded-full text-white ${getStatusClass(incident.status)}">
+                            ${incident.status.toUpperCase()}
+                        </span>
+                    </div>
+                </div>
+            `).join('');
+            
+            lucide.createIcons();
+        }
+
+        function getSeverityClass(severity) {
+            const classes = {
+                critical: 'severity-critical',
+                high: 'severity-high',
+                medium: 'severity-medium',
+                low: 'severity-low'
+            };
+            return classes[severity] || 'severity-low';
+        }
+
+        function getStatusClass(status) {
+            const classes = {
+                open: 'status-open',
+                investigating: 'status-investigating',
+                resolved: 'status-resolved'
+            };
+            return classes[status] || 'status-open';
+        }
+
+        // API functions
+        async function loadData() {
+            try {
+                const [alertsRes, incidentsRes, overviewRes] = await Promise.all([
+                    fetch(`${API_BASE}/api/v1/alerts`),
+                    fetch(`${API_BASE}/api/v1/incidents`),
+                    fetch(`${API_BASE}/api/v1/dashboard/overview`)
+                ]);
+
+                const alerts = await alertsRes.json();
+                const incidents = await incidentsRes.json();
+                const overview = await overviewRes.json();
+
+                updateMetrics(overview);
+                renderAlerts(alerts.alerts);
+                renderIncidents(incidents.incidents);
+                
+                // Update connection status
+                document.getElementById('connection-status').className = 'w-2 h-2 bg-green-500 rounded-full pulse-dot';
+                
+            } catch (error) {
+                console.error('Failed to load data:', error);
+                showToast('Failed to load data', 'error');
+                document.getElementById('connection-status').className = 'w-2 h-2 bg-red-500 rounded-full';
+            }
+        }
+
+        async function createSampleData() {
+            try {
+                const response = await fetch(`${API_BASE}/api/v1/sample-data`, { method: 'POST' });
+                const result = await response.json();
+                showToast('Sample data created successfully', 'success');
+                loadData();
+            } catch (error) {
+                showToast('Failed to create sample data', 'error');
+            }
+        }
+
+        async function createAlert() {
+            try {
+                const alertData = {
+                    source: 'dashboard',
+                    service: 'dashboard-service',
+                    severity: 'medium',
+                    description: 'Alert created from dashboard',
+                    tags: ['dashboard', 'manual']
+                };
+                const response = await fetch(`${API_BASE}/api/v1/alerts`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(alertData)
+                });
+                const result = await response.json();
+                showToast('Alert created successfully', 'success');
+                loadData();
+            } catch (error) {
+                showToast('Failed to create alert', 'error');
+            }
+        }
+
+        async function createIncident() {
+            try {
+                const incidentData = {
+                    title: 'Dashboard Incident',
+                    description: 'Incident created from dashboard',
+                    severity: 'medium',
+                    service: 'dashboard-service'
+                };
+                const response = await fetch(`${API_BASE}/api/v1/incidents`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(incidentData)
+                });
+                const result = await response.json();
+                showToast('Incident created successfully', 'success');
+                loadData();
+            } catch (error) {
+                showToast('Failed to create incident', 'error');
+            }
+        }
+
+        function refreshData() {
+            showToast('Refreshing data...', 'info');
+            loadData();
+        }
+
+        function toggleTheme() {
+            isDarkMode = !isDarkMode;
+            showToast(`${isDarkMode ? 'Dark' : 'Light'} mode activated`, 'info');
+            // Theme toggle implementation would go here
+        }
+
+        function showSettings() {
+            showToast('Settings panel coming soon!', 'info');
+        }
+
+        function exportData() {
+            showToast('Export feature coming soon!', 'info');
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            initCharts();
+            loadData();
+            
+            // Auto-refresh every 30 seconds
+            setInterval(loadData, 30000);
+        });
+    </script>
+</body>
+</html>
