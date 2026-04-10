@@ -218,10 +218,10 @@
             <div class="glass-effect rounded-xl p-6">
                 <div class="flex items-center justify-between mb-4">
                     <h2 class="text-lg font-semibold text-gray-900">Alert Trends</h2>
-                    <select class="text-sm border border-gray-300 rounded-lg px-3 py-1">
-                        <option>Last 7 days</option>
-                        <option>Last 30 days</option>
-                        <option>Last 3 months</option>
+                    <select id="trend-timeline" onchange="updateTrendTimeline()" class="text-sm border border-gray-300 rounded-lg px-3 py-1 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                        <option value="7">Last 7 days</option>
+                        <option value="30">Last 30 days</option>
+                        <option value="90">Last 3 months</option>
                     </select>
                 </div>
                 <div class="chart-container">
@@ -411,10 +411,10 @@
             alertTrendsChart = new Chart(trendsCtx, {
                 type: 'line',
                 data: {
-                    labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+                    labels: [],
                     datasets: [{
                         label: 'Alerts',
-                        data: [12, 19, 3, 5, 2, 3, 8],
+                        data: [],
                         borderColor: 'rgb(59, 130, 246)',
                         backgroundColor: 'rgba(59, 130, 246, 0.1)',
                         tension: 0.4,
@@ -432,7 +432,10 @@
                     }
                 }
             });
-
+            
+            // Initialize with 7-day data
+            updateTrendData(7);
+            
             // Severity Distribution Chart
             const severityCtx = document.getElementById('severityChart').getContext('2d');
             severityChart = new Chart(severityCtx, {
@@ -459,6 +462,63 @@
                     }
                 }
             });
+        }
+
+        // Update trend data based on timeline
+        function updateTrendData(days) {
+            const labels = [];
+            const data = [];
+            
+            // Generate labels and mock data based on timeline
+            if (days === 7) {
+                // Last 7 days - daily
+                for (let i = 6; i >= 0; i--) {
+                    const date = new Date();
+                    date.setDate(date.getDate() - i);
+                    labels.push(date.toLocaleDateString('en-US', { weekday: 'short' }));
+                    data.push(Math.floor(Math.random() * 20) + 5);
+                }
+            } else if (days === 30) {
+                // Last 30 days - weekly
+                for (let i = 4; i >= 0; i--) {
+                    const date = new Date();
+                    date.setDate(date.getDate() - (i * 7));
+                    labels.push(`Week ${5 - i}`);
+                    data.push(Math.floor(Math.random() * 100) + 20);
+                }
+            } else if (days === 90) {
+                // Last 3 months - monthly
+                for (let i = 2; i >= 0; i--) {
+                    const date = new Date();
+                    date.setMonth(date.getMonth() - i);
+                    labels.push(date.toLocaleDateString('en-US', { month: 'short' }));
+                    data.push(Math.floor(Math.random() * 300) + 50);
+                }
+            }
+            
+            // Update chart
+            if (alertTrendsChart) {
+                alertTrendsChart.data.labels = labels;
+                alertTrendsChart.data.datasets[0].data = data;
+                alertTrendsChart.update();
+            }
+        }
+
+        // Handle timeline change
+        function updateTrendTimeline() {
+            const select = document.getElementById('trend-timeline');
+            const days = parseInt(select.value);
+            
+            showToast(`Updating trends for last ${days} days...`, 'info');
+            updateTrendData(days);
+            
+            // Add animation effect
+            const chartContainer = document.getElementById('alertTrendsChart').closest('.glass-effect');
+            chartContainer.style.opacity = '0.5';
+            setTimeout(() => {
+                chartContainer.style.opacity = '1';
+                showToast(`Trends updated for last ${days} days`, 'success');
+            }, 300);
         }
 
         // Update metrics
