@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Alert Intelligence Platform - Test</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .error { color: red; }
+        .success { color: green; }
+        .loading { color: blue; }
+    </style>
+</head>
+<body class="bg-gray-100">
+    <div class="container mx-auto p-4">
+        <h1 class="text-3xl font-bold mb-6">Alert Intelligence Platform</h1>
+        
+        <div class="bg-white p-4 rounded shadow mb-4">
+            <h2 class="text-xl font-semibold mb-2">API Status</h2>
+            <div id="api-status" class="loading">Checking API...</div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+            <div class="bg-white p-4 rounded shadow">
+                <h3 class="text-lg font-semibold mb-2">Actions</h3>
+                <button onclick="createSampleData()" class="bg-blue-500 text-white px-4 py-2 rounded mr-2 hover:bg-blue-600">Create Sample Data</button>
+                <button onclick="createAlert()" class="bg-green-500 text-white px-4 py-2 rounded mr-2 hover:bg-green-600">Create Alert</button>
+                <button onclick="refreshData()" class="bg-yellow-500 text-white px-4 py-2 rounded hover:bg-yellow-600">Refresh</button>
+            </div>
+            
+            <div class="bg-white p-4 rounded shadow">
+                <h3 class="text-lg font-semibold mb-2">Statistics</h3>
+                <div id="stats">
+                    <p>Total Alerts: <span id="total-alerts">-</span></p>
+                    <p>Total Incidents: <span id="total-incidents">-</span></p>
+                </div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div class="bg-white p-4 rounded shadow">
+                <h3 class="text-lg font-semibold mb-2">Recent Alerts</h3>
+                <div id="alerts-list" class="space-y-2">
+                    <p class="text-gray-500">Loading alerts...</p>
+                </div>
+            </div>
+            
+            <div class="bg-white p-4 rounded shadow">
+                <h3 class="text-lg font-semibold mb-2">Recent Incidents</h3>
+                <div id="incidents-list" class="space-y-2">
+                    <p class="text-gray-500">Loading incidents...</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-white p-4 rounded shadow mt-4">
+            <h3 class="text-lg font-semibold mb-2">Console Log</h3>
+            <div id="console-log" class="bg-gray-900 text-green-400 p-2 rounded font-mono text-sm h-32 overflow-y-auto">
+                <div>Console output will appear here...</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:8000';
+        
+        function log(message, type = 'info') {
+            const console = document.getElementById('console-log');
+            const timestamp = new Date().toLocaleTimeString();
+            const color = type === 'error' ? 'text-red-400' : type === 'success' ? 'text-green-400' : 'text-green-400';
+            console.innerHTML += `<div class="${color}">[${timestamp}] ${message}</div>`;
+            console.scrollTop = console.scrollHeight;
+        }
+
+        async function checkAPI() {
+            try {
+                const response = await fetch(`${API_BASE}/health`);
+                const data = await response.json();
+                document.getElementById('api-status').innerHTML = `<span class="success">API is healthy: ${JSON.stringify(data)}</span>`;
+                log('API health check successful', 'success');
+                return true;
+            } catch (error) {
+                document.getElementById('api-status').innerHTML = `<span class="error">API Error: ${error.message}</span>`;
+                log(`API health check failed: ${error.message}`, 'error');
+                return false;
+            }
+        }
+
+        async function loadData() {
+            try {
+                log('Loading data...');
+                
+                const [alertsRes, incidentsRes, overviewRes] = await Promise.all([
+                    fetch(`${API_BASE}/api/v1/alerts`),
+                    fetch(`${API_BASE}/api/v1/incidents`),
+                    fetch(`${API_BASE}/api/v1/dashboard/overview`)
+                ]);
+
+                const alerts = await alertsRes.json();
+                const incidents = await incidentsRes.json();
+                const overview = await overviewRes.json();
+
+                // Update stats
+                document.getElementById('total-alerts').textContent = overview.total_alerts || 0;
+                document.getElementById('total-incidents').textContent = overview.total_incidents || 0;
+
+                // Update alerts list
+                const alertsList = document.getElementById('alerts-list');
+                if (alerts.alerts && alerts.alerts.length > 0) {
+                    alertsList.innerHTML = alerts.alerts.slice(-5).reverse().map(alert => `
+                        <div class="border-l-4 border-blue-500 pl-3 py-2">
+                            <div class="flex justify-between">
+                                <div>
+                                    <p class="font-medium">${alert.description}</p>
+                                    <p class="text-sm text-gray-500">${alert.service} - ${alert.source}</p>
+                                </div>
+                                <span class="px-2 py-1 text-xs rounded bg-${getSeverityColor(alert.severity)}-100 text-${getSeverityColor(alert.severity)}-800">
+                                    ${alert.severity}
+                                </span>
+                            </div>
+                        </div>
+                    `).join('');
+                } else {
+                    alertsList.innerHTML = '<p class="text-gray-500">No alerts found</p>';
+                }
+
+                // Update incidents list
+                const incidentsList = document.getElementById('incidents-list');
+                if (incidents.incidents && incidents.incidents.length > 0) {
+                    incidentsList.innerHTML = incidents.incidents.slice(-5).reverse().map(incident => `
+                        <div class="border-l-4 border-orange-500 pl-3 py-2">
+                            <div class="flex justify-between">
+                                <div>
+                                    <p class="font-medium">${incident.title}</p>
+                                    <p class="text-sm text-gray-500">${incident.service}</p>
+                                </div>
+                                <span class="px-2 py-1 text-xs rounded bg-${getStatusColor(incident.status)}-100 text-${getStatusColor(incident.status)}-800">
+                                    ${incident.status}
+                                </span>
+                            </div>
+                        </div>
+                    `).join('');
+                } else {
+                    incidentsList.innerHTML = '<p class="text-gray-500">No incidents found</p>';
+                }
+
+                log('Data loaded successfully', 'success');
+            } catch (error) {
+                log(`Failed to load data: ${error.message}`, 'error');
+            }
+        }
+
+        function getSeverityColor(severity) {
+            switch(severity) {
+                case 'critical': return 'red';
+                case 'high': return 'orange';
+                case 'medium': return 'yellow';
+                default: return 'gray';
+            }
+        }
+
+        function getStatusColor(status) {
+            switch(status) {
+                case 'open': return 'red';
+                case 'investigating': return 'yellow';
+                default: return 'green';
+            }
+        }
+
+        async function createSampleData() {
+            try {
+                log('Creating sample data...');
+                const response = await fetch(`${API_BASE}/api/v1/sample-data`, { method: 'POST' });
+                const result = await response.json();
+                log(`Sample data created: ${JSON.stringify(result)}`, 'success');
+                loadData();
+            } catch (error) {
+                log(`Failed to create sample data: ${error.message}`, 'error');
+            }
+        }
+
+        async function createAlert() {
+            try {
+                log('Creating alert...');
+                const alertData = {
+                    source: 'web-ui',
+                    service: 'web-service',
+                    severity: 'medium',
+                    description: 'Alert created from web interface',
+                    tags: ['web', 'ui']
+                };
+                const response = await fetch(`${API_BASE}/api/v1/alerts`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(alertData)
+                });
+                const result = await response.json();
+                log(`Alert created: ${JSON.stringify(result)}`, 'success');
+                loadData();
+            } catch (error) {
+                log(`Failed to create alert: ${error.message}`, 'error');
+            }
+        }
+
+        async function refreshData() {
+            log('Refreshing data...');
+            await loadData();
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', async () => {
+            log('Application started');
+            const apiOk = await checkAPI();
+            if (apiOk) {
+                await loadData();
+            }
+        });
+    </script>
+</body>
+</html>
