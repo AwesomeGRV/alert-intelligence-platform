@@ -844,8 +844,8 @@
                 document.getElementById('medium-count').textContent = severityCounts.medium;
                 document.getElementById('low-count').textContent = severityCounts.low;
                 
-                // Initialize historical data with 7-day view
-                await loadHistoricalSeverityData(7);
+                // Initialize historical data with 7-day view using real alerts
+                await loadHistoricalSeverityData(7, alerts);
                 
                 // Show recent alerts grouped by severity
                 displayRecentAlerts(alerts);
@@ -908,10 +908,10 @@
             });
         }
 
-        async function loadHistoricalSeverityData(days) {
+        async function loadHistoricalSeverityData(days, alerts) {
             try {
-                // Generate historical data based on timeline
-                const historicalData = generateHistoricalData(days);
+                // Generate historical data based on timeline using real alerts
+                const historicalData = generateHistoricalData(days, alerts);
                 
                 // Update historical counts
                 document.getElementById('historical-critical').textContent = historicalData.total.critical;
@@ -933,33 +933,61 @@
             }
         }
 
-        function generateHistoricalData(days) {
+        function generateHistoricalData(days, allAlerts) {
             const labels = [];
             const criticalData = [];
             const highData = [];
             const mediumData = [];
             const lowData = [];
             
-            // Generate data based on timeline
+            // Filter alerts within the specified time period
+            const now = new Date();
+            const startDate = new Date(now.getTime() - (days * 24 * 60 * 60 * 1000));
+            
+            const filteredAlerts = allAlerts.filter(alert => {
+                const alertDate = new Date(alert.timestamp);
+                return alertDate >= startDate && alertDate <= now;
+            });
+            
+            // Generate data based on timeline using real alerts
             if (days === 7) {
-                // Last 7 days - daily
+                // Last 7 days - daily breakdown
                 for (let i = 6; i >= 0; i--) {
                     const date = new Date();
                     date.setDate(date.getDate() - i);
+                    const dayStart = new Date(date.setHours(0, 0, 0, 0));
+                    const dayEnd = new Date(date.setHours(23, 59, 59, 999));
+                    
+                    const dayAlerts = filteredAlerts.filter(alert => {
+                        const alertDate = new Date(alert.timestamp);
+                        return alertDate >= dayStart && alertDate <= dayEnd;
+                    });
+                    
                     labels.push(date.toLocaleDateString('en-US', { weekday: 'short' }));
-                    criticalData.push(Math.floor(Math.random() * 5) + 1);
-                    highData.push(Math.floor(Math.random() * 8) + 2);
-                    mediumData.push(Math.floor(Math.random() * 12) + 3);
-                    lowData.push(Math.floor(Math.random() * 15) + 5);
+                    criticalData.push(dayAlerts.filter(a => a.severity?.toLowerCase() === 'critical').length);
+                    highData.push(dayAlerts.filter(a => a.severity?.toLowerCase() === 'high').length);
+                    mediumData.push(dayAlerts.filter(a => a.severity?.toLowerCase() === 'medium').length);
+                    lowData.push(dayAlerts.filter(a => a.severity?.toLowerCase() === 'low').length);
                 }
             } else if (days === 30) {
-                // Last 30 days - weekly
+                // Last 30 days - weekly breakdown
                 for (let i = 4; i >= 0; i--) {
+                    const weekStart = new Date();
+                    weekStart.setDate(weekStart.getDate() - (i * 7));
+                    weekStart.setHours(0, 0, 0, 0);
+                    const weekEnd = new Date(weekStart.getTime() + (7 * 24 * 60 * 60 * 1000) - 1);
+                    weekEnd.setHours(23, 59, 59, 999);
+                    
+                    const weekAlerts = filteredAlerts.filter(alert => {
+                        const alertDate = new Date(alert.timestamp);
+                        return alertDate >= weekStart && alertDate <= weekEnd;
+                    });
+                    
                     labels.push(`Week ${5 - i}`);
-                    criticalData.push(Math.floor(Math.random() * 15) + 5);
-                    highData.push(Math.floor(Math.random() * 25) + 10);
-                    mediumData.push(Math.floor(Math.random() * 35) + 15);
-                    lowData.push(Math.floor(Math.random() * 45) + 20);
+                    criticalData.push(weekAlerts.filter(a => a.severity?.toLowerCase() === 'critical').length);
+                    highData.push(weekAlerts.filter(a => a.severity?.toLowerCase() === 'high').length);
+                    mediumData.push(weekAlerts.filter(a => a.severity?.toLowerCase() === 'medium').length);
+                    lowData.push(weekAlerts.filter(a => a.severity?.toLowerCase() === 'low').length);
                 }
             }
             
@@ -971,12 +999,12 @@
                 low: lowData.reduce((a, b) => a + b, 0)
             };
             
-            // Calculate trends (mock trend percentages)
+            // Calculate real trends based on data
             const trends = {
-                critical: `+${Math.floor(Math.random() * 20) + 5}%`,
-                high: `+${Math.floor(Math.random() * 15) + 3}%`,
-                medium: `-${Math.floor(Math.random() * 10) + 2}%`,
-                low: `+${Math.floor(Math.random() * 8) + 1}%`
+                critical: calculateTrend(criticalData),
+                high: calculateTrend(highData),
+                medium: calculateTrend(mediumData),
+                low: calculateTrend(lowData)
             };
             
             // Update trend colors based on positive/negative
@@ -985,8 +1013,10 @@
                 if (trendElement) {
                     if (trends[severity].startsWith('+')) {
                         trendElement.className = 'text-xs text-green-600';
-                    } else {
+                    } else if (trends[severity].startsWith('-')) {
                         trendElement.className = 'text-xs text-red-600';
+                    } else {
+                        trendElement.className = 'text-xs text-gray-600';
                     }
                 }
             });
@@ -1002,6 +1032,18 @@
                     low: lowData
                 }
             };
+        }
+
+        function calculateTrend(dataPoints) {
+            if (dataPoints.length < 2) return '0%';
+            
+            const recent = dataPoints.slice(-3).reduce((a, b) => a + b, 0) / Math.min(3, dataPoints.length);
+            const older = dataPoints.slice(0, -3).reduce((a, b) => a + b, 0) / Math.max(1, dataPoints.length - 3);
+            
+            const change = ((recent - older) / older * 100).toFixed(1);
+            if (change > 0) return `+${change}%`;
+            if (change < 0) return `${change}%`;
+            return '0%';
         }
 
         function updateSeverityTrendChart(data, days) {
@@ -1089,12 +1131,18 @@
             });
         }
 
-        function updateSeverityTimeline() {
+        async function updateSeverityTimeline() {
             const select = document.getElementById('severity-timeline');
             const days = parseInt(select.value);
             
             showToast(`Updating severity history for last ${days} days...`, 'info');
-            loadHistoricalSeverityData(days);
+            
+            // Get current alerts to use for historical data
+            const response = await fetch(`${API_BASE}/api/v1/alerts`);
+            const data = await response.json();
+            const alerts = data.alerts || [];
+            
+            loadHistoricalSeverityData(days, alerts);
             
             setTimeout(() => {
                 showToast(`Severity history updated for last ${days} days`, 'success');
